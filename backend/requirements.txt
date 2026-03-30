@@ -6,6 +6,7 @@ alembic
 python-dotenv
 PyJWT
 python-multipart
+PyMySQL
 faiss-cpu
 langchain
 langchain-text-splitters
