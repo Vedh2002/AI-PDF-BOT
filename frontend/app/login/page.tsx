@@ -25,6 +25,7 @@ export default function LoginPage() {
       const result = await loginUser({ email, password });
       if (result.token) {
         localStorage.setItem("jwt", result.token);
+        localStorage.setItem("user", JSON.stringify(result.user));
       }
       setSuccess(true);
       setTimeout(() => router.push("/dashboard"), 700);

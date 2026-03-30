@@ -3,10 +3,10 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from jwt.exceptions import InvalidTokenError
 from fastapi import HTTPException, status, Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+http_bearer = HTTPBearer()
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -17,7 +17,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(http_bearer)) -> dict:
     """Get the current user from the access token"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -25,10 +25,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("id")  # "id" carries the integer user pk; "sub" carries the name
         if user_id is None:
             raise credentials_exception
-        return {"id": user_id}
-    except InvalidTokenError:
+        return {"id": int(user_id)}
+    except (InvalidTokenError, ValueError):
         raise credentials_exception

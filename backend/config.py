@@ -45,6 +45,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 # CORS Configuration
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
+# LLM Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")  # "groq" or "openai"
+GROQ_DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+OPENAI_DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
 print(f"✓ Environment: {ENVIRONMENT}")
 print(f"✓ Database: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
 print(f"✓ Allowed Origins: {ALLOWED_ORIGINS}")

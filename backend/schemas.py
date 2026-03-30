@@ -6,6 +6,7 @@ class UserCreate(BaseModel):
     """Schema for creating a new user"""
     name: str
     email: str
+    password: str
 
 class UserUpdate(BaseModel):
     """Schema for updating user"""
