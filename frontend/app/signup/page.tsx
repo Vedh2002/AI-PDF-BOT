@@ -45,6 +45,7 @@ export default function SignupPage() {
       const result = await signupUser({ name, email, password });
       if (result.token) {
         localStorage.setItem("jwt", result.token);
+        localStorage.setItem("user", JSON.stringify(result.user));
       }
       setSuccess(true);
       setTimeout(() => router.push("/dashboard"), 800);

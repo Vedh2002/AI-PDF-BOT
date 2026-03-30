@@ -1,14 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-
-const recentDocs = [
-  { name: "Q4_2024_Contract.pdf", size: "2.4 MB", date: "2 hours ago", pages: 34, color: "#6366f1" },
-  { name: "Employee_Handbook.docx", size: "1.1 MB", date: "Yesterday", pages: 88, color: "#8b5cf6" },
-  { name: "Project_Proposal_v3.pdf", size: "4.7 MB", date: "3 days ago", pages: 22, color: "#06b6d4" },
-  { name: "Research_Paper_AI.pdf", size: "3.2 MB", date: "1 week ago", pages: 56, color: "#ec4899" },
-];
+import { getDocuments, uploadDocuments, deleteDocument, Document } from "@/services/documents";
+import { sendChatMessage, getChatHistory, Message, ConversationRecord } from "@/services/chat";
 
 const quickActions = [
   {
@@ -23,6 +17,7 @@ const quickActions = [
     desc: "Add a new file to your library",
     color: "#6366f1",
     bg: "rgba(99,102,241,0.12)",
+    action: "upload",
   },
   {
     icon: (
@@ -34,6 +29,7 @@ const quickActions = [
     desc: "Start a conversation with AI",
     color: "#8b5cf6",
     bg: "rgba(139,92,246,0.12)",
+    action: "chat",
   },
   {
     icon: (
@@ -46,6 +42,7 @@ const quickActions = [
     desc: "Find anything across your files",
     color: "#06b6d4",
     bg: "rgba(6,182,212,0.1)",
+    action: "search",
   },
   {
     icon: (
@@ -60,35 +57,161 @@ const quickActions = [
     desc: "Get instant document summaries",
     color: "#ec4899",
     bg: "rgba(236,72,153,0.1)",
+    action: "summarize",
   },
-];
-
-const statsData = [
-  { label: "Documents", value: "12", delta: "+3 this week", icon: "📄", color: "#6366f1" },
-  { label: "Chats", value: "47", delta: "+12 today", icon: "💬", color: "#8b5cf6" },
-  { label: "Queries", value: "234", delta: "+18% vs last week", icon: "⚡", color: "#06b6d4" },
-  { label: "Saved", value: "1.2 GB", delta: "of 10 GB used", icon: "💾", color: "#ec4899" },
 ];
 
 export default function DashboardPage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const [mounted, setMounted] = useState(false);
   const [userName, setUserName] = useState("there");
   const [dragOver, setDragOver] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Documents
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  // Chat
+  const [chatMessages, setChatMessages] = useState<Message[]>([
+    { role: "assistant", content: "Hello! Upload a document and I'll help you extract insights instantly. ✨" },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+
+  // History
+  const [chatTab, setChatTab] = useState<"chat" | "history">("chat");
+  const [historyDocId, setHistoryDocId] = useState<number | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<ConversationRecord[]>([]);
+
+  const fetchDocuments = async (token: string) => {
+    setDocsLoading(true);
+    try {
+      const docs = await getDocuments(token);
+      setDocuments(docs);
+      if (docs.length > 0 && !selectedDocId) setSelectedDocId(docs[0].id);
+    } catch {
+      // silently fail — user sees empty list
+    } finally {
+      setDocsLoading(false);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("jwt");
-    if (!token) {
-      router.replace("/login");
-      return;
+    if (!token) { router.replace("/login"); return; }
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      try { setUserName(JSON.parse(stored).name || "there"); } catch { /* ignore */ }
     }
     setMounted(true);
+    fetchDocuments(token);
   }, [router]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  const fetchHistory = async (docId: number) => {
+    const token = localStorage.getItem("jwt");
+    if (!token) return;
+    setHistoryLoading(true);
+    setHistoryRecords([]);
+    try {
+      const records = await getChatHistory(docId, token);
+      setHistoryRecords(records);
+    } catch {
+      setHistoryRecords([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleTabSwitch = (tab: "chat" | "history") => {
+    setChatTab(tab);
+    if (tab === "history") {
+      // Auto-select first document if none chosen for history yet
+      const firstId = historyDocId ?? documents[0]?.id ?? null;
+      if (firstId) { setHistoryDocId(firstId); fetchHistory(firstId); }
+    }
+  };
+
+  const handleHistoryDocSelect = (docId: number) => {
+    setHistoryDocId(docId);
+    fetchHistory(docId);
+  };
+
+  const handleDocChange = (id: number) => {
+    setSelectedDocId(id);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("jwt");
+    localStorage.removeItem("user");
     router.replace("/login");
+  };
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const token = localStorage.getItem("jwt");
+    if (!token) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      await uploadDocuments(Array.from(files), token);
+      await fetchDocuments(token);
+    } catch (e: unknown) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (docId: number) => {
+    const token = localStorage.getItem("jwt");
+    if (!token) return;
+    try {
+      await deleteDocument(docId, token);
+      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+      if (selectedDocId === docId) setSelectedDocId(documents.find((d) => d.id !== docId)?.id ?? null);
+    } catch { /* ignore */ }
+  };
+
+  const handleSendChat = async () => {
+    const question = chatInput.trim();
+    if (!question || !selectedDocId || chatLoading) return;
+    const token = localStorage.getItem("jwt");
+    if (!token) return;
+
+    setChatInput("");
+    setChatError("");
+    const history = chatMessages.filter((m) => m.role !== "assistant" || chatMessages.indexOf(m) > 0);
+    const userMsg: Message = { role: "user", content: question };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setChatLoading(true);
+
+    try {
+      const res = await sendChatMessage({
+        documentId: selectedDocId,
+        question,
+        conversationHistory: history.slice(-10), // keep last 10 turns
+        token,
+      });
+      setChatMessages((prev) => [...prev, { role: "assistant", content: res.answer }]);
+    } catch (e: unknown) {
+      setChatError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   if (!mounted) {
@@ -171,7 +294,12 @@ export default function DashboardPage() {
 
         {/* ── STATS GRID ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {statsData.map((s, i) => (
+          {[
+            { label: "Documents", value: String(documents.length), delta: "uploaded", icon: "📄", color: "#6366f1" },
+            { label: "Chats", value: String(chatMessages.filter(m => m.role === "user").length), delta: "this session", icon: "💬", color: "#8b5cf6" },
+            { label: "Queries", value: String(chatMessages.filter(m => m.role === "user").length), delta: "questions asked", icon: "⚡", color: "#06b6d4" },
+            { label: "AI Ready", value: selectedDocId ? "Yes" : "No", delta: selectedDocId ? "doc selected" : "upload a doc", icon: "💾", color: "#ec4899" },
+          ].map((s, i) => (
             <div key={i} className={`glass-card rounded-2xl p-5 animate-fade-up delay-${(i+1)*100}`} style={{borderColor:`${s.color}22`}}>
               <div className="flex items-start justify-between mb-3">
                 <span className="text-2xl">{s.icon}</span>
@@ -185,15 +313,18 @@ export default function DashboardPage() {
 
         {/* ── MAIN CONTENT GRID ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Quick actions + Recent docs */}
-          <div className="lg:col-span-2 space-y-6">
+          {/* Left: Quick actions + Upload + Documents + Usage */}
+          <div className="lg:col-span-1 space-y-6">
             {/* Quick actions */}
             <div className="animate-fade-up delay-200">
               <h2 className="text-lg font-bold text-white mb-4">Quick Actions</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {quickActions.map((a, i) => (
                   <button
                     key={i}
+                    onClick={() => {
+                      if (a.action === "upload") fileInputRef.current?.click();
+                    }}
                     className="glass-card rounded-2xl p-4 flex flex-col items-center gap-2.5 text-center group transition-all duration-300 cursor-pointer"
                     style={{borderColor:`${a.color}22`}}
                   >
@@ -202,8 +333,7 @@ export default function DashboardPage() {
                       {a.icon}
                     </div>
                     <div>
-                      <div className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">{a.title}</div>
-                      <div className="text-xs text-white/30 mt-0.5 hidden sm:block">{a.desc}</div>
+                      <div className="text-xs font-semibold text-white/80 group-hover:text-white transition-colors">{a.title}</div>
                     </div>
                   </button>
                 ))}
@@ -212,126 +342,271 @@ export default function DashboardPage() {
 
             {/* Recent documents */}
             <div className="animate-fade-up delay-300">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-white">Recent Documents</h2>
-                <button className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium flex items-center gap-1">
-                  View all
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                </button>
-              </div>
+              <h2 className="text-lg font-bold text-white mb-4">Recent Documents</h2>
+              {docsLoading && (
+                <p className="text-xs text-white/30 py-4 text-center">Loading documents…</p>
+              )}
+              {!docsLoading && documents.length === 0 && (
+                <p className="text-xs text-white/30 py-4 text-center">No documents yet. Upload a PDF or TXT to get started.</p>
+              )}
               <div className="space-y-2.5">
-                {recentDocs.map((doc, i) => (
-                  <div
-                    key={i}
-                    className={`group flex items-center gap-4 glass-card rounded-xl px-4 py-3 cursor-pointer animate-fade-up delay-${(i+2)*100}`}
-                  >
-                    {/* File icon */}
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:`${doc.color}18`}}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={doc.color} strokeWidth="1.8" strokeLinejoin="round"/>
-                        <polyline points="14,2 14,8 20,8" stroke={doc.color} strokeWidth="1.8" strokeLinejoin="round"/>
-                      </svg>
+                {documents.map((doc, i) => {
+                  const colors = ["#6366f1","#8b5cf6","#06b6d4","#ec4899"];
+                  const color = colors[i % colors.length];
+                  return (
+                    <div
+                      key={doc.id}
+                      onClick={() => handleDocChange(doc.id)}
+                      className={`group flex items-center gap-4 glass-card rounded-xl px-4 py-3 cursor-pointer animate-fade-up`}
+                      style={{borderColor: selectedDocId === doc.id ? `${color}55` : undefined}}
+                    >
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:`${color}18`}}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
+                          <polyline points="14,2 14,8 20,8" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white/85 truncate group-hover:text-white transition-colors">{doc.filename}</p>
+                        <p className="text-xs text-white/30">{new Date(doc.created_at).toLocaleDateString()}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedDocId(doc.id); }}
+                          title="Chat with this document"
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2"/></svg>
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white/85 truncate group-hover:text-white transition-colors">{doc.name}</p>
-                      <p className="text-xs text-white/30">{doc.pages} pages · {doc.size} · {doc.date}</p>
-                    </div>
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all text-xs">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2"/></svg>
-                      </button>
-                      <button className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/5 transition-all">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
 
-          {/* Right: Upload drop zone + chat preview */}
-          <div className="space-y-6">
-            {/* Upload area */}
-            <div className="animate-fade-up delay-400">
-              <h2 className="text-lg font-bold text-white mb-4">Upload</h2>
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => { e.preventDefault(); setDragOver(false); }}
-                className="rounded-2xl p-8 text-center cursor-pointer transition-all duration-300"
-                style={{
-                  background: dragOver ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.02)",
-                  border: `2px dashed ${dragOver ? "rgba(99,102,241,0.6)" : "rgba(255,255,255,0.08)"}`,
-                }}
-              >
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 transition-all duration-300 ${dragOver ? "animate-bounce-gentle" : ""}`}
-                  style={{background:"rgba(99,102,241,0.12)"}}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <polyline points="17,8 12,3 7,8" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <line x1="12" y1="3" x2="12" y2="15" stroke="#818cf8" strokeWidth="2" strokeLinecap="round"/>
-                  </svg>
-                </div>
-                <p className="text-sm font-semibold text-white/70 mb-1">
-                  {dragOver ? "Drop to upload!" : "Drop files here"}
-                </p>
-                <p className="text-xs text-white/30 mb-4">PDF, DOCX, TXT, XLSX — up to 100 MB</p>
-                <button className="btn-primary px-5 py-2 rounded-xl text-sm font-semibold text-white">
-                  Browse files
-                </button>
-              </div>
-            </div>
+          {/* Right: Expanded AI Chat (2 cols wide) */}
+          <div className="lg:col-span-2 animate-fade-up delay-400">
+            <div className="glass-card rounded-2xl flex flex-col" style={{borderColor:"rgba(99,102,241,0.15)", height:"680px"}}>
 
-            {/* AI Chat preview */}
-            <div className="animate-fade-up delay-500">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-white">AI Assistant</h2>
-                <span className="flex items-center gap-1.5 text-xs text-green-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
-                  Online
-                </span>
-              </div>
-              <div className="glass-card rounded-2xl p-4" style={{borderColor:"rgba(99,102,241,0.15)"}}>
-                <div className="space-y-3 mb-4 min-h-[100px]">
-                  <div className="flex gap-2 items-start">
-                    <div className="w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="white"/></svg>
-                    </div>
-                    <div className="glass rounded-xl rounded-tl-sm px-3 py-2 text-xs text-white/75 max-w-[80%]">
-                      Hello! Upload a document and I&apos;ll help you extract insights instantly. ✨
-                    </div>
+              {/* ── Panel Header ── */}
+              <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-white leading-tight">AI Assistant</h2>
+                    <span className="flex items-center gap-1.5 text-xs text-green-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
+                      Online
+                    </span>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <input placeholder="Ask about your docs..." className="input-glass flex-1 px-3 py-2 rounded-xl text-xs"/>
-                  <button className="btn-primary w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                      <path d="M22 2L11 13" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M22 2L15 22 11 13 2 9l20-7z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                {/* Tab switcher */}
+                <div className="flex gap-1 p-1 rounded-xl" style={{background:"rgba(255,255,255,0.05)"}}>
+                  <button
+                    onClick={() => setChatTab("chat")}
+                    className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+                    style={chatTab === "chat" ? {background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
+                  >
+                    New Chat
+                  </button>
+                  <button
+                    onClick={() => handleTabSwitch("history")}
+                    className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+                    style={chatTab === "history" ? {background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
+                  >
+                    History
                   </button>
                 </div>
               </div>
-            </div>
 
-            {/* Usage */}
-            <div className="animate-fade-up delay-600 glass-card rounded-2xl p-5" style={{borderColor:"rgba(99,102,241,0.12)"}}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-white/70">Storage</span>
-                <span className="text-xs text-white/35">1.2 / 10 GB</span>
-              </div>
-              <div className="w-full h-1.5 rounded-full mb-4" style={{background:"rgba(255,255,255,0.06)"}}>
-                <div className="h-full rounded-full transition-all duration-500" style={{width:"12%",background:"linear-gradient(90deg,#6366f1,#8b5cf6)"}}/>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-white/70">API Queries</span>
-                <span className="text-xs text-white/35">234 / 1000</span>
-              </div>
-              <div className="w-full h-1.5 rounded-full mt-3" style={{background:"rgba(255,255,255,0.06)"}}>
-                <div className="h-full rounded-full transition-all duration-500" style={{width:"23%",background:"linear-gradient(90deg,#8b5cf6,#ec4899)"}}/>
-              </div>
+              {/* ── Document selector (chat tab only) ── */}
+              {chatTab === "chat" && (
+                <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                  {documents.length > 0 ? (
+                    <select
+                      value={selectedDocId ?? ""}
+                      onChange={(e) => handleDocChange(Number(e.target.value))}
+                      className="input-glass w-full px-3 py-2.5 rounded-xl text-sm"
+                    >
+                      {documents.map((d) => (
+                        <option key={d.id} value={d.id}>{d.filename}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-white/30 text-center py-2">Upload a document to get started</p>
+                  )}
+                </div>
+              )}
+
+              {/* ── Chat Tab ── */}
+              {chatTab === "chat" && (
+                <>
+                  <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4" style={{minHeight:0}}>
+                    {chatMessages.map((msg, i) => (
+                      <div key={i} className={`flex gap-3 items-start ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+                        {msg.role === "assistant" && (
+                          <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mt-0.5" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="white"/></svg>
+                          </div>
+                        )}
+                        <div
+                          className={`rounded-2xl px-4 py-3 text-sm max-w-[80%] leading-relaxed ${msg.role === "user" ? "rounded-tr-sm text-white/90" : "rounded-tl-sm text-white/80"}`}
+                          style={msg.role === "user"
+                            ? {background:"rgba(99,102,241,0.28)"}
+                            : {background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)"}}
+                        >
+                          {msg.content}
+                        </div>
+                      </div>
+                    ))}
+                    {chatLoading && (
+                      <div className="flex gap-3 items-start">
+                        <div className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center mt-0.5" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="white"/></svg>
+                        </div>
+                        <div className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm" style={{background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)"}}>
+                          <span className="inline-flex gap-1 items-center">
+                            <span className="w-2 h-2 rounded-full bg-white/30 animate-bounce" style={{animationDelay:"0ms"}}/>
+                            <span className="w-2 h-2 rounded-full bg-white/30 animate-bounce" style={{animationDelay:"150ms"}}/>
+                            <span className="w-2 h-2 rounded-full bg-white/30 animate-bounce" style={{animationDelay:"300ms"}}/>
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {chatError && <p className="text-xs text-red-400 px-1">{chatError}</p>}
+                    <div ref={chatEndRef}/>
+                  </div>
+                  {/* Input */}
+                  <div className="px-5 pb-5 pt-3 flex-shrink-0 border-t border-white/5">
+                    <div className="flex gap-3">
+                      <input
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendChat()}
+                        placeholder={selectedDocId ? "Ask anything about your document…" : "Select a document first…"}
+                        disabled={!selectedDocId || chatLoading}
+                        className="input-glass flex-1 px-4 py-3 rounded-xl text-sm disabled:opacity-40"
+                      />
+                      <button
+                        onClick={handleSendChat}
+                        disabled={!selectedDocId || chatLoading || !chatInput.trim()}
+                        className="btn-primary w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 disabled:opacity-40"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                          <path d="M22 2L11 13" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          <path d="M22 2L15 22 11 13 2 9l20-7z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* ── History Tab — two-pane document-wise layout ── */}
+              {chatTab === "history" && (
+                <div className="flex flex-1 overflow-hidden" style={{minHeight:0}}>
+
+                  {/* Left: document list */}
+                  <div className="w-48 flex-shrink-0 border-r border-white/5 overflow-y-auto py-3">
+                    {documents.length === 0 && (
+                      <p className="text-xs text-white/25 text-center px-3 pt-8">No documents</p>
+                    )}
+                    {documents.map((doc, i) => {
+                      const colors = ["#6366f1","#8b5cf6","#06b6d4","#ec4899"];
+                      const color = colors[i % colors.length];
+                      const active = historyDocId === doc.id;
+                      return (
+                        <button
+                          key={doc.id}
+                          onClick={() => handleHistoryDocSelect(doc.id)}
+                          className="w-full text-left px-3 py-2.5 mx-0 flex items-center gap-2.5 transition-all duration-150"
+                          style={active
+                            ? {background:"rgba(99,102,241,0.15)", borderRight:`2px solid ${color}`}
+                            : {borderRight:"2px solid transparent"}}
+                        >
+                          <div className="w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center" style={{background:`${color}18`}}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
+                              <polyline points="14,2 14,8 20,8" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
+                            </svg>
+                          </div>
+                          <span className={`text-xs font-medium truncate ${active ? "text-white" : "text-white/50"}`}>{doc.filename}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right: conversations for selected doc */}
+                  <div className="flex-1 overflow-y-auto px-4 py-4" style={{minHeight:0}}>
+                    {!historyDocId && (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{background:"rgba(99,102,241,0.1)"}}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="#6366f1" strokeWidth="2" strokeLinecap="round"/></svg>
+                        </div>
+                        <p className="text-sm text-white/30">Select a document to view history</p>
+                      </div>
+                    )}
+                    {historyDocId && historyLoading && (
+                      <div className="flex flex-col items-center justify-center h-full gap-3">
+                        <svg className="animate-spin" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="#6366f1" strokeWidth="2" strokeDasharray="60" strokeDashoffset="20"/>
+                        </svg>
+                        <p className="text-sm text-white/30 animate-pulse">Loading history…</p>
+                      </div>
+                    )}
+                    {historyDocId && !historyLoading && historyRecords.length === 0 && (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{background:"rgba(99,102,241,0.1)"}}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="#6366f1" strokeWidth="2" strokeLinecap="round"/></svg>
+                        </div>
+                        <p className="text-sm text-white/30">No history for this document yet.</p>
+                        <p className="text-xs text-white/20">Chat with it first in the &quot;New Chat&quot; tab.</p>
+                      </div>
+                    )}
+                    {historyDocId && !historyLoading && historyRecords.length > 0 && (
+                      <div className="space-y-4">
+                        {/* Document label */}
+                        <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#6366f1" strokeWidth="2" strokeLinejoin="round"/><polyline points="14,2 14,8 20,8" stroke="#6366f1" strokeWidth="2" strokeLinejoin="round"/></svg>
+                          <span className="text-xs font-semibold text-indigo-400 truncate">{documents.find(d => d.id === historyDocId)?.filename}</span>
+                          <span className="ml-auto text-xs text-white/25 flex-shrink-0">{historyRecords.length} Q&amp;A{historyRecords.length !== 1 ? "s" : ""}</span>
+                        </div>
+                        {historyRecords.map((record, i) => (
+                          <div key={record.id} className="rounded-2xl p-4" style={{background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)"}}>
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{background:"rgba(99,102,241,0.2)", color:"#818cf8"}}>
+                                #{historyRecords.length - i}
+                              </span>
+                              <span className="text-xs text-white/25">{new Date(record.created_at).toLocaleString()}</span>
+                            </div>
+                            {/* Question */}
+                            <div className="flex justify-end mb-2.5">
+                              <div className="rounded-2xl rounded-tr-sm px-3 py-2 text-xs text-white/85 max-w-[90%] leading-relaxed" style={{background:"rgba(99,102,241,0.22)"}}>
+                                {record.question}
+                              </div>
+                            </div>
+                            {/* Answer */}
+                            <div className="flex gap-2 items-start">
+                              <div className="w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" fill="white"/></svg>
+                              </div>
+                              <div className="rounded-2xl rounded-tl-sm px-3 py-2 text-xs text-white/70 flex-1 leading-relaxed" style={{background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.05)"}}>
+                                {record.answer}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+
             </div>
           </div>
         </div>

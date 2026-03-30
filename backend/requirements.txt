@@ -5,3 +5,13 @@ sqlalchemy
 alembic
 python-dotenv
 PyJWT
+python-multipart
+faiss-cpu
+langchain
+langchain-text-splitters
+langchain-community
+langchain-huggingface
+sentence-transformers
+pypdf
+groq
+openai

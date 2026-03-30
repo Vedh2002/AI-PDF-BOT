@@ -9,6 +9,7 @@ import os
 # Add parent directory to path so we can import our modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import models  # noqa: F401 – registers all ORM classes with Base.metadata
 from database import init_db
 from config import ENVIRONMENT
 

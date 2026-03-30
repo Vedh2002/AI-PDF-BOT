@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from routers.users import router
+from routers.document_process import router as document_router
+from routers.chat import router as chat_router
 from database import init_db
 from config import ALLOWED_ORIGINS
 
@@ -31,6 +33,8 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api", tags=["users"])
+app.include_router(document_router, prefix="/api", tags=["documents"])
+app.include_router(chat_router, prefix="/api", tags=["chat"])
 
 @app.get("/")
 def read_root():

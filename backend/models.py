@@ -15,3 +15,31 @@ class User(Base):
 
     class Config:
         from_attributes = True
+
+class Document(Base):
+    """Document model for database"""
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    filename = Column(String(255), nullable=False)
+    faiss_index_path = Column(String(512), nullable=True)  # path to the persisted FAISS index
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    class Config:
+        from_attributes = True
+
+class Conversation(Base):
+    """Conversation model for database"""
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    document_id = Column(Integer, nullable=False)
+    conversation_history = Column(Text, nullable=False)  # Store as JSON string
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    class Config:
+        from_attributes = True

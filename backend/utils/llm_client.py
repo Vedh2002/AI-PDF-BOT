@@ -1,0 +1,62 @@
+from typing import Literal, List, Dict
+
+from config import (
+    GROQ_API_KEY,
+    OPENAI_API_KEY,
+    GROQ_DEFAULT_MODEL,
+    OPENAI_DEFAULT_MODEL,
+)
+
+
+def get_llm_response(
+    messages: List[Dict[str, str]],
+    provider: Literal["groq", "openai"] = "groq",
+    model: str | None = None,
+) -> str:
+    """
+    Send a list of OpenAI-style chat messages to the chosen LLM provider
+    and return the assistant's reply text.
+
+    Args:
+        messages:  List of {"role": "system|user|assistant", "content": "..."}
+        provider:  "groq" or "openai"
+        model:     Optional model override; falls back to the provider's default.
+
+    Raises:
+        ValueError:  If the API key is missing or provider is unknown.
+        Exception:   Propagates any network / API error to the caller.
+    """
+    if provider == "groq":
+        from groq import Groq  # lazy import – only required when used
+
+        if not GROQ_API_KEY:
+            raise ValueError(
+                "GROQ_API_KEY is not configured. Set it in your .env file."
+            )
+        client = Groq(api_key=GROQ_API_KEY)
+        effective_model = model or GROQ_DEFAULT_MODEL
+        response = client.chat.completions.create(
+            model=effective_model,
+            messages=messages,
+        )
+        return response.choices[0].message.content
+
+    elif provider == "openai":
+        from openai import OpenAI  # lazy import – only required when used
+
+        if not OPENAI_API_KEY:
+            raise ValueError(
+                "OPENAI_API_KEY is not configured. Set it in your .env file."
+            )
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        effective_model = model or OPENAI_DEFAULT_MODEL
+        response = client.chat.completions.create(
+            model=effective_model,
+            messages=messages,
+        )
+        return response.choices[0].message.content
+
+    else:
+        raise ValueError(
+            f"Unsupported LLM provider: '{provider}'. Choose 'groq' or 'openai'."
+        )
