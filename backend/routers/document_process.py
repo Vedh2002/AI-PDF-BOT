@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 from typing import List
@@ -5,10 +6,12 @@ from typing import List
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from config import DEFAULT_LLM_PROVIDER
 from database import get_db
 from models import Document
-from utils.rag_builder import build_faiss_index
+from utils.rag_builder import build_faiss_index, load_faiss_index
 from utils.authentication import get_current_user
+from utils.llm_client import get_llm_response
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 ALLOWED_EXTENSIONS = {".pdf", ".txt"}
@@ -88,6 +91,13 @@ def upload_documents(
 
         db.commit()
         db.refresh(doc)
+
+        # Generate summary in background (non-blocking best-effort)
+        try:
+            _generate_doc_summary(doc, user_id, db)
+        except Exception:
+            pass  # summary failure must not break upload
+
         results.append(
             {"id": doc.id, "filename": doc.filename, "index_path": index_path}
         )
@@ -96,6 +106,39 @@ def upload_documents(
         "message": f"Successfully processed {len(results)} document(s).",
         "documents": results,
     }
+
+
+def _generate_doc_summary(doc: Document, user_id: int, db: Session) -> None:
+    """Pull first N chunks and ask LLM for a title, 3-line summary, and 5 key topics."""
+    vector_store = load_faiss_index(user_id, doc.id)
+    # Use a broad query to grab diverse representative chunks
+    chunks = vector_store.similarity_search("overview introduction summary", k=6)
+    sample_text = "\n\n".join(c.page_content for c in chunks)[:4000]
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a document analyst. Given a document excerpt, respond with ONLY valid JSON "
+                "in this exact format, no other text:\n"
+                '{"title": "concise document title (max 8 words)", '
+                '"summary": "3-sentence summary of the document", '
+                '"key_topics": ["topic1", "topic2", "topic3", "topic4", "topic5"]}'
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Analyse this document excerpt:\n\n{sample_text}",
+        },
+    ]
+    raw = get_llm_response(messages, provider=DEFAULT_LLM_PROVIDER)
+    # Strip markdown code fences if present
+    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    data = json.loads(raw)
+    doc.doc_title = data.get("title", "")
+    doc.summary = data.get("summary", "")
+    doc.key_topics = json.dumps(data.get("key_topics", []))
+    db.commit()
 
 
 @router.get("/documents")
@@ -112,7 +155,14 @@ def get_documents(
         .all()
     )
     return [
-        {"id": d.id, "filename": d.filename, "created_at": d.created_at.isoformat()}
+        {
+            "id": d.id,
+            "filename": d.filename,
+            "created_at": d.created_at.isoformat(),
+            "doc_title": d.doc_title or "",
+            "summary": d.summary or "",
+            "key_topics": json.loads(d.key_topics) if d.key_topics else [],
+        }
         for d in docs
     ]
 

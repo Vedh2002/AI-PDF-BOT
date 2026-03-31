@@ -2,63 +2,27 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getDocuments, uploadDocuments, deleteDocument, Document } from "@/services/documents";
-import { sendChatMessage, getChatHistory, Message, ConversationRecord } from "@/services/chat";
+import { sendChatMessage, getChatHistory, generateQuiz, Message, ConversationRecord, QuizQuestion } from "@/services/chat";
 import MarkdownMessage from "@/components/MarkdownMessage";
+
+const LANGUAGES = ["English","Hindi","Telugu","Tamil","Spanish","French","German","Arabic","Chinese","Japanese"];
 
 const quickActions = [
   {
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        <polyline points="17,8 12,3 7,8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-      </svg>
-    ),
-    title: "Upload Document",
-    desc: "Add a new file to your library",
-    color: "#6366f1",
-    bg: "rgba(99,102,241,0.12)",
-    action: "upload",
+    icon: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17,8 12,3 7,8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>),
+    title: "Upload Document", color: "#6366f1", bg: "rgba(99,102,241,0.12)", action: "upload",
   },
   {
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    ),
-    title: "New Chat",
-    desc: "Start a conversation with AI",
-    color: "#8b5cf6",
-    bg: "rgba(139,92,246,0.12)",
-    action: "chat",
+    icon: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    title: "New Chat", color: "#8b5cf6", bg: "rgba(139,92,246,0.12)", action: "chat",
   },
   {
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-        <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
-        <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-      </svg>
-    ),
-    title: "Search Docs",
-    desc: "Find anything across your files",
-    color: "#06b6d4",
-    bg: "rgba(6,182,212,0.1)",
-    action: "search",
+    icon: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>),
+    title: "Quiz Me", color: "#f59e0b", bg: "rgba(245,158,11,0.1)", action: "quiz",
   },
   {
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
-        <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
-        <line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-        <line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-      </svg>
-    ),
-    title: "Summarize",
-    desc: "Get instant document summaries",
-    color: "#ec4899",
-    bg: "rgba(236,72,153,0.1)",
-    action: "summarize",
+    icon: (<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/><line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>),
+    title: "Summarize", color: "#ec4899", bg: "rgba(236,72,153,0.1)", action: "summarize",
   },
 ];
 
@@ -77,6 +41,7 @@ export default function DashboardPage() {
   const [docsLoading, setDocsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [summaryDocId, setSummaryDocId] = useState<number | null>(null); // doc whose summary card is open
 
   // Chat
   const [chatMessages, setChatMessages] = useState<Message[]>([
@@ -86,12 +51,25 @@ export default function DashboardPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
+  const [followUps, setFollowUps] = useState<string[]>([]);
+
+  // Chat modes
+  const [liveMode, setLiveMode] = useState(false);
+  const [liveSources, setLiveSources] = useState<string[]>([]);
+  const [language, setLanguage] = useState("English");
+  const [compareDocId, setCompareDocId] = useState<number | null>(null);
 
   // History
-  const [chatTab, setChatTab] = useState<"chat" | "history">("chat");
+  const [chatTab, setChatTab] = useState<"chat" | "history" | "quiz">("chat");
   const [historyDocId, setHistoryDocId] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRecords, setHistoryRecords] = useState<ConversationRecord[]>([]);
+
+  // Quiz
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
 
   // Toast
   const [toastMessage, setToastMessage] = useState("");
@@ -105,7 +83,7 @@ export default function DashboardPage() {
       setDocuments(docs);
       if (docs.length > 0 && !selectedDocId) setSelectedDocId(docs[0].id);
     } catch {
-      // silently fail — user sees empty list
+      // silently fail
     } finally {
       setDocsLoading(false);
     }
@@ -139,15 +117,6 @@ export default function DashboardPage() {
       setHistoryRecords([]);
     } finally {
       setHistoryLoading(false);
-    }
-  };
-
-  const handleTabSwitch = (tab: "chat" | "history") => {
-    setChatTab(tab);
-    if (tab === "history") {
-      // Auto-select first document if none chosen for history yet
-      const firstId = historyDocId ?? documents[0]?.id ?? null;
-      if (firstId) { setHistoryDocId(firstId); fetchHistory(firstId); }
     }
   };
 
@@ -206,34 +175,35 @@ export default function DashboardPage() {
 
   const handleNewChat = () => {
     setChatMessages([
-      { role: "assistant", content: "Hello! Upload a document and I\u2019ll help you extract insights instantly. ✨" },
+      { role: "assistant", content: "Hello! Upload a document and I\u2019ll help you extract insights instantly. \u2728" },
     ]);
     setChatInput("");
     setChatError("");
+    setFollowUps([]);
+    setLiveSources([]);
     setChatTab("chat");
   };
 
   const handleSummarize = async () => {
-    if (!selectedDocId) {
-      showToast("Please select a document first to summarize.", "error");
-      return;
-    }
+    if (!selectedDocId) { showToast("Please select a document first.", "error"); return; }
     const token = localStorage.getItem("jwt");
     if (!token) return;
     setChatTab("chat");
-    const summaryQuestion = "Please provide a comprehensive summary of this document. Include: (1) The main topic and purpose, (2) Key points and findings, (3) Any important data or details, (4) Conclusions or recommendations.";
     setChatInput("");
     setChatError("");
-    setChatMessages((prev) => [...prev, { role: "user", content: "📋 Summarize this document" }]);
+    setFollowUps([]);
+    setChatMessages((prev) => [...prev, { role: "user", content: "\uD83D\uDCCB Summarize this document" }]);
     setChatLoading(true);
     try {
       const res = await sendChatMessage({
         documentId: selectedDocId,
-        question: summaryQuestion,
+        question: "Provide a comprehensive summary: (1) main topic & purpose, (2) key points & findings, (3) important data, (4) conclusions.",
         conversationHistory: [],
         token,
+        language,
       });
       setChatMessages((prev) => [...prev, { role: "assistant", content: res.answer }]);
+      setFollowUps(res.follow_up_questions || []);
     } catch (e: unknown) {
       setChatError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -241,32 +211,82 @@ export default function DashboardPage() {
     }
   };
 
-  const handleSendChat = async () => {
-    const question = chatInput.trim();
+  const handleSendChat = async (overrideQuestion?: string) => {
+    const question = (overrideQuestion ?? chatInput).trim();
     if (!question || !selectedDocId || chatLoading) return;
     const token = localStorage.getItem("jwt");
     if (!token) return;
 
-    setChatInput("");
+    if (!overrideQuestion) setChatInput("");
     setChatError("");
+    setLiveSources([]);
+    setFollowUps([]);
     const history = chatMessages.filter((m) => m.role !== "assistant" || chatMessages.indexOf(m) > 0);
-    const userMsg: Message = { role: "user", content: question };
-    setChatMessages((prev) => [...prev, userMsg]);
+    setChatMessages((prev) => [...prev, { role: "user", content: question }]);
     setChatLoading(true);
 
     try {
       const res = await sendChatMessage({
         documentId: selectedDocId,
         question,
-        conversationHistory: history.slice(-10), // keep last 10 turns
+        conversationHistory: history.slice(-10),
         token,
+        liveMode,
+        language,
+        compareDocumentId: compareDocId ?? undefined,
       });
       setChatMessages((prev) => [...prev, { role: "assistant", content: res.answer }]);
+      if (res.live_sources?.length) setLiveSources(res.live_sources);
+      setFollowUps(res.follow_up_questions || []);
     } catch (e: unknown) {
       setChatError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleStartQuiz = async () => {
+    if (!selectedDocId) { showToast("Please select a document first.", "error"); return; }
+    const token = localStorage.getItem("jwt");
+    if (!token) return;
+    setChatTab("quiz");
+    setQuizQuestions([]);
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+    setQuizLoading(true);
+    try {
+      const qs = await generateQuiz(selectedDocId, token, 5, language);
+      setQuizQuestions(qs);
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Failed to generate quiz", "error");
+      setChatTab("chat");
+    } finally {
+      setQuizLoading(false);
+    }
+  };
+
+  const handleExportChat = () => {
+    const lines: string[] = [`# Chat Export\n`];
+    chatMessages.forEach((m) => {
+      lines.push(`**${m.role === "user" ? "You" : "AI"}:** ${m.content}\n`);
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat-export-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Chat exported!", "success");
+  };
+
+  const handleTabSwitch = (tab: "chat" | "history" | "quiz") => {
+    setChatTab(tab);
+    if (tab === "history") {
+      const firstId = historyDocId ?? documents[0]?.id ?? null;
+      if (firstId) { setHistoryDocId(firstId); fetchHistory(firstId); }
+    }
+    if (tab === "quiz") handleStartQuiz();
   };
 
   if (!mounted) {
@@ -436,6 +456,7 @@ export default function DashboardPage() {
                       else if (a.action === "chat") handleNewChat();
                       else if (a.action === "search") searchInputRef.current?.focus();
                       else if (a.action === "summarize") handleSummarize();
+                      else if (a.action === "quiz") handleStartQuiz();
                     }}
                     className="glass-card rounded-2xl p-4 flex flex-col items-center gap-2.5 text-center group transition-all duration-300 cursor-pointer"
                     style={{borderColor:`${a.color}22`}}
@@ -468,41 +489,68 @@ export default function DashboardPage() {
                 {filteredDocs.map((doc, i) => {
                   const colors = ["#6366f1","#8b5cf6","#06b6d4","#ec4899"];
                   const color = colors[i % colors.length];
+                  const showSummary = summaryDocId === doc.id;
                   return (
-                    <div
-                      key={doc.id}
-                      onClick={() => handleDocChange(doc.id)}
-                      className={`group flex items-center gap-4 glass-card rounded-xl px-4 py-3 cursor-pointer animate-fade-up transition-all duration-200`}
-                      style={{
-                        borderColor: selectedDocId === doc.id ? `${color}55` : undefined,
-                        background: selectedDocId === doc.id ? `${color}12` : undefined,
-                        boxShadow: selectedDocId === doc.id ? `inset 3px 0 0 ${color}` : undefined,
-                      }}
-                    >
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:`${color}18`}}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
-                          <polyline points="14,2 14,8 20,8" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
-                        </svg>
+                    <div key={doc.id} className="animate-fade-up">
+                      <div
+                        onClick={() => handleDocChange(doc.id)}
+                        className={`group flex items-center gap-4 glass-card rounded-xl px-4 py-3 cursor-pointer transition-all duration-200`}
+                        style={{
+                          borderColor: selectedDocId === doc.id ? `${color}55` : undefined,
+                          background: selectedDocId === doc.id ? `${color}12` : undefined,
+                          boxShadow: selectedDocId === doc.id ? `inset 3px 0 0 ${color}` : undefined,
+                        }}
+                      >
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:`${color}18`}}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
+                            <polyline points="14,2 14,8 20,8" stroke={color} strokeWidth="1.8" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold truncate transition-colors ${selectedDocId === doc.id ? "text-white" : "text-white/85 group-hover:text-white"}`}>
+                            {doc.doc_title || doc.filename}
+                          </p>
+                          <p className="text-xs text-white/30">{new Date(doc.created_at).toLocaleDateString()}</p>
+                        </div>
+                        {selectedDocId === doc.id && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0" style={{background:`${color}22`, color}}>
+                            Active
+                          </span>
+                        )}
+                        <div className={`flex items-center gap-1.5 transition-opacity ${selectedDocId === doc.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+                          {doc.summary && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSummaryDocId(showSummary ? null : doc.id); }}
+                              title="View summary"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedDocId(doc.id); }}
+                            title="Chat with this document"
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2"/></svg>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate transition-colors ${selectedDocId === doc.id ? "text-white" : "text-white/85 group-hover:text-white"}`}>{doc.filename}</p>
-                        <p className="text-xs text-white/30">{new Date(doc.created_at).toLocaleDateString()}</p>
-                      </div>
-                      {selectedDocId === doc.id && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0" style={{background:`${color}22`, color}}>
-                          Active
-                        </span>
+                      {/* Summary card */}
+                      {showSummary && doc.summary && (
+                        <div className="mx-1 mt-1 mb-1 px-4 py-3 rounded-xl text-xs" style={{background:"rgba(245,158,11,0.06)", border:"1px solid rgba(245,158,11,0.2)"}}>
+                          {doc.doc_title && <p className="font-bold text-amber-300 mb-1.5">{doc.doc_title}</p>}
+                          <p className="text-white/60 leading-relaxed mb-2">{doc.summary}</p>
+                          {doc.key_topics && doc.key_topics.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {doc.key_topics.map((t, ti) => (
+                                <span key={ti} className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{background:"rgba(245,158,11,0.15)", color:"#fbbf24"}}>{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
-                      <div className={`flex items-center gap-1.5 transition-opacity ${selectedDocId === doc.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedDocId(doc.id); }}
-                          title="Chat with this document"
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-white/40 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2"/></svg>
-                        </button>
-                      </div>
                     </div>
                   );
                 })}
@@ -515,36 +563,99 @@ export default function DashboardPage() {
             <div className="glass-card rounded-2xl flex flex-col" style={{borderColor:"rgba(99,102,241,0.15)", height:"680px"}}>
 
               {/* ── Panel Header ── */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-white/5 flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <div className="flex flex-col gap-3 px-5 pt-5 pb-4 border-b border-white/5 flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-white leading-tight">AI Assistant</h2>
+                      <span className="flex items-center gap-1.5 text-xs text-green-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
+                        Online
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-base font-bold text-white leading-tight">AI Assistant</h2>
-                    <span className="flex items-center gap-1.5 text-xs text-green-400">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"/>
-                      Online
-                    </span>
+                  <div className="flex items-center gap-2">
+                    {/* Export */}
+                    <button
+                      onClick={handleExportChat}
+                      title="Export chat as Markdown"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200"
+                      style={{background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", color:"rgba(255,255,255,0.45)"}}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><polyline points="7,10 12,15 17,10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                      Export
+                    </button>
+                    {/* Live mode toggle */}
+                    <button
+                      onClick={() => { setLiveMode((v) => !v); setLiveSources([]); }}
+                      title={liveMode ? "Live Web Mode ON — click to disable" : "Enable Live Web Mode"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200"
+                      style={liveMode
+                        ? {background:"rgba(6,182,212,0.18)", border:"1px solid rgba(6,182,212,0.45)", color:"#06b6d4"}
+                        : {background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", color:"rgba(255,255,255,0.35)"}}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                        <line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeWidth="2"/>
+                      </svg>
+                      Live
+                    </button>
+                    {/* Tab switcher */}
+                    <div className="flex gap-1 p-1 rounded-xl" style={{background:"rgba(255,255,255,0.05)"}}>
+                      <button
+                        onClick={() => setChatTab("chat")}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+                        style={chatTab === "chat" ? {background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
+                      >
+                        Chat
+                      </button>
+                      <button
+                        onClick={() => handleTabSwitch("history")}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+                        style={chatTab === "history" ? {background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
+                      >
+                        History
+                      </button>
+                      <button
+                        onClick={() => handleTabSwitch("quiz")}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
+                        style={chatTab === "quiz" ? {background:"linear-gradient(135deg,#f59e0b,#d97706)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
+                      >
+                        Quiz
+                      </button>
+                    </div>
                   </div>
                 </div>
-                {/* Tab switcher */}
-                <div className="flex gap-1 p-1 rounded-xl" style={{background:"rgba(255,255,255,0.05)"}}>
-                  <button
-                    onClick={() => setChatTab("chat")}
-                    className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
-                    style={chatTab === "chat" ? {background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
-                  >
-                    New Chat
-                  </button>
-                  <button
-                    onClick={() => handleTabSwitch("history")}
-                    className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200"
-                    style={chatTab === "history" ? {background:"linear-gradient(135deg,#6366f1,#8b5cf6)", color:"white"} : {color:"rgba(255,255,255,0.4)"}}
-                  >
-                    History
-                  </button>
-                </div>
+                {/* Language + Compare row (chat tab only) */}
+                {chatTab === "chat" && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      className="input-glass px-3 py-1.5 rounded-xl text-xs flex-1"
+                      title="Response language"
+                    >
+                      {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                    {documents.length > 1 && (
+                      <select
+                        value={compareDocId ?? ""}
+                        onChange={(e) => setCompareDocId(e.target.value ? Number(e.target.value) : null)}
+                        className="input-glass px-3 py-1.5 rounded-xl text-xs flex-1"
+                        title="Compare with another document"
+                      >
+                        <option value="">Compare with… (optional)</option>
+                        {documents.filter(d => d.id !== selectedDocId).map((d) => (
+                          <option key={d.id} value={d.id}>{d.filename}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* ── Document selector (chat tab only) ── */}
@@ -608,6 +719,38 @@ export default function DashboardPage() {
                     {chatError && <p className="text-xs text-red-400 px-1">{chatError}</p>}
                     <div ref={chatEndRef}/>
                   </div>
+                  {/* Follow-up question chips */}
+                  {followUps.length > 0 && !chatLoading && (
+                    <div className="mx-5 mb-2 flex flex-wrap gap-2 flex-shrink-0">
+                      {followUps.map((q, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleSendChat(q)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+                          style={{background:"rgba(99,102,241,0.12)", border:"1px solid rgba(99,102,241,0.3)", color:"rgba(165,180,252,0.9)"}}
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Live sources */}
+                  {liveSources.length > 0 && (
+                    <div className="mx-5 mb-3 px-4 py-3 rounded-xl text-xs flex-shrink-0" style={{background:"rgba(6,182,212,0.07)", border:"1px solid rgba(6,182,212,0.2)"}}>
+                      <p className="text-cyan-400 font-semibold mb-1.5 flex items-center gap-1.5">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/><line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke="currentColor" strokeWidth="2"/></svg>
+                        Live web sources
+                      </p>
+                      <div className="space-y-1">
+                        {liveSources.map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                            className="block truncate text-cyan-300/70 hover:text-cyan-300 transition-colors">
+                            {url}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {/* Input */}
                   <div className="px-5 pb-5 pt-3 flex-shrink-0 border-t border-white/5">
                     <div className="flex gap-3">
@@ -620,7 +763,7 @@ export default function DashboardPage() {
                         className="input-glass flex-1 px-4 py-3 rounded-xl text-sm disabled:opacity-40"
                       />
                       <button
-                        onClick={handleSendChat}
+                        onClick={() => handleSendChat()}
                         disabled={!selectedDocId || chatLoading || !chatInput.trim()}
                         className="btn-primary w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 disabled:opacity-40"
                       >
@@ -732,6 +875,99 @@ export default function DashboardPage() {
                     )}
                   </div>
 
+                </div>
+              )}
+
+              {/* ── Quiz Tab ── */}
+              {chatTab === "quiz" && (
+                <div className="flex-1 overflow-y-auto px-5 py-4" style={{minHeight:0}}>
+                  {quizLoading && (
+                    <div className="flex flex-col items-center justify-center h-full gap-4">
+                      <svg className="animate-spin" width="32" height="32" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="#f59e0b" strokeWidth="2" strokeDasharray="60" strokeDashoffset="20"/>
+                      </svg>
+                      <p className="text-sm text-white/40 animate-pulse">Generating quiz questions…</p>
+                    </div>
+                  )}
+                  {!quizLoading && quizQuestions.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{background:"rgba(245,158,11,0.1)"}}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3L22 4" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </div>
+                      <p className="text-sm text-white/35">Select a document and click Quiz Me to generate questions.</p>
+                    </div>
+                  )}
+                  {!quizLoading && quizQuestions.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-bold text-white">{quizQuestions.length} Questions</h3>
+                        {quizSubmitted && (
+                          <span className="text-xs font-bold px-3 py-1 rounded-full" style={{background:"rgba(16,185,129,0.15)", color:"#34d399"}}>
+                            Score: {quizQuestions.filter((_, qi) => quizAnswers[qi] === _.correct_index).length}/{quizQuestions.length}
+                          </span>
+                        )}
+                      </div>
+                      {quizQuestions.map((q, qi) => {
+                        const selected = quizAnswers[qi];
+                        const isCorrect = quizSubmitted && selected === q.correct_index;
+                        const isWrong = quizSubmitted && selected !== undefined && selected !== q.correct_index;
+                        return (
+                          <div key={qi} className="rounded-2xl p-4 space-y-3" style={{background:"rgba(255,255,255,0.03)", border:`1px solid ${isCorrect ? "rgba(16,185,129,0.3)" : isWrong ? "rgba(239,68,68,0.3)" : "rgba(255,255,255,0.07)"}`}}>
+                            <p className="text-sm font-semibold text-white/90">
+                              <span className="text-amber-400 mr-2">Q{qi+1}.</span>{q.question}
+                            </p>
+                            <div className="space-y-2">
+                              {q.options.map((opt, oi) => {
+                                const isSelected = selected === oi;
+                                const isCorrectOpt = quizSubmitted && oi === q.correct_index;
+                                const isWrongSelected = quizSubmitted && isSelected && oi !== q.correct_index;
+                                return (
+                                  <button
+                                    key={oi}
+                                    onClick={() => { if (!quizSubmitted) setQuizAnswers(prev => ({...prev, [qi]: oi})); }}
+                                    disabled={quizSubmitted}
+                                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all"
+                                    style={{
+                                      background: isCorrectOpt ? "rgba(16,185,129,0.18)" : isWrongSelected ? "rgba(239,68,68,0.18)" : isSelected ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.04)",
+                                      border: `1px solid ${isCorrectOpt ? "rgba(16,185,129,0.5)" : isWrongSelected ? "rgba(239,68,68,0.5)" : isSelected ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.07)"}`,
+                                      color: isCorrectOpt ? "#34d399" : isWrongSelected ? "#f87171" : isSelected ? "rgba(165,180,252,0.9)" : "rgba(255,255,255,0.55)",
+                                    }}
+                                  >
+                                    <span className="font-bold mr-2">{String.fromCharCode(65+oi)}.</span>{opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {quizSubmitted && q.explanation && (
+                              <div className="px-3 py-2 rounded-xl text-xs" style={{background:"rgba(99,102,241,0.08)", border:"1px solid rgba(99,102,241,0.2)"}}>
+                                <span className="text-indigo-300 font-semibold">Explanation: </span>
+                                <span className="text-white/55">{q.explanation}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {!quizSubmitted && (
+                        <button
+                          onClick={() => setQuizSubmitted(true)}
+                          disabled={Object.keys(quizAnswers).length < quizQuestions.length}
+                          className="w-full py-3 rounded-2xl text-sm font-bold transition-all mt-2 disabled:opacity-40"
+                          style={{background:"linear-gradient(135deg,#f59e0b,#d97706)", color:"white"}}
+                        >
+                          Submit Quiz ({Object.keys(quizAnswers).length}/{quizQuestions.length} answered)
+                        </button>
+                      )}
+                      {quizSubmitted && (
+                        <button
+                          onClick={() => handleStartQuiz()}
+                          className="w-full py-3 rounded-2xl text-sm font-bold transition-all mt-2"
+                          style={{background:"rgba(245,158,11,0.15)", border:"1px solid rgba(245,158,11,0.3)", color:"#fbbf24"}}
+                        >
+                          Retake Quiz
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

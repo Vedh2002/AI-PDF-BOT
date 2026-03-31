@@ -16,3 +16,4 @@ sentence-transformers
 pypdf
 groq
 openai
+ddgs
