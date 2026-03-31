@@ -4,6 +4,9 @@ export interface Document {
   id: number;
   filename: string;
   created_at: string;
+  doc_title?: string;
+  summary?: string;
+  key_topics?: string[];
 }
 
 export interface UploadResult {
