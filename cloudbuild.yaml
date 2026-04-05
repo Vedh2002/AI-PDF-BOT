@@ -26,10 +26,9 @@ substitutions:
   _SQL_INSTANCE: ai-pdf-bot-db
   _DATA_BUCKET: ai-pdf-bot-data
   _SA_EMAIL: ai-pdf-bot-sa@PROJECT_ID.iam.gserviceaccount.com
-  # _IMAGE_TAG is used as the Docker image tag.
-  # When triggered from GitHub, SHORT_SHA is set automatically.
-  # When using gcloud builds submit manually, SHORT_SHA=v1 is passed as a substitution.
-  SHORT_SHA: latest
+  # Image tag: auto-set to git short SHA by GitHub trigger.
+  # When running manually via gcloud builds submit, defaults to "latest".
+  _IMAGE_TAG: latest
 
 steps:
   # ── 1. Build backend Docker image ─────────────────────────────────────────
@@ -38,7 +37,7 @@ steps:
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:latest
       - ./backend
@@ -59,7 +58,7 @@ steps:
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:${_IMAGE_TAG}
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:latest
       - --build-arg
@@ -84,7 +83,7 @@ steps:
       - run
       - deploy
       - $_BACKEND_SERVICE
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}
       - --region=$_REGION
       - --platform=managed
       - --execution-environment=gen2
@@ -110,7 +109,7 @@ steps:
       - run
       - deploy
       - $_FRONTEND_SERVICE
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:${_IMAGE_TAG}
       - --region=$_REGION
       - --platform=managed
       - --service-account=$_SA_EMAIL
@@ -123,8 +122,8 @@ steps:
       - --timeout=60
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:$SHORT_SHA
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/backend:${_IMAGE_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/frontend:${_IMAGE_TAG}
 
 options:
   logging: CLOUD_LOGGING_ONLY
