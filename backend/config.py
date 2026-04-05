@@ -20,9 +20,18 @@ if ENVIRONMENT == Environment.GCP.value:
     DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
     DB_PORT = os.getenv("DB_PORT", "3306")
     DB_NAME = os.getenv("DB_NAME", "ai_pdf_bot")
-    
-    # For Cloud SQL, use MySQL
-    DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+    # Cloud SQL Auth Proxy via Unix socket (used on Cloud Run)
+    # Set CLOUD_SQL_CONNECTION_NAME=project:region:instance to enable socket mode
+    CLOUD_SQL_CONNECTION_NAME = os.getenv("CLOUD_SQL_CONNECTION_NAME", "")
+    if CLOUD_SQL_CONNECTION_NAME:
+        DATABASE_URL = (
+            f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@/{DB_NAME}"
+            f"?unix_socket=/cloudsql/{CLOUD_SQL_CONNECTION_NAME}"
+        )
+    else:
+        # Direct TCP (Cloud SQL with public IP or private VPC)
+        DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 else:
     # Local SQLite configuration
     # Database file will be stored in backend directory

@@ -18,3 +18,4 @@ groq
 openai
 ddgs
 resend
+google-cloud-storage
