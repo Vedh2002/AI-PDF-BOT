@@ -1,0 +1,40 @@
+# Cloud Run service definition – AI PDF Bot FRONTEND
+# Usage: gcloud run services replace deploy/frontend-service.yaml --region=REGION
+#
+# Replace every PLACEHOLDER_ value before applying.
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ai-pdf-bot-frontend
+  labels:
+    cloud.googleapis.com/location: PLACEHOLDER_REGION   # e.g. us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "5"
+    spec:
+      serviceAccountName: ai-pdf-bot-sa@PLACEHOLDER_PROJECT.iam.gserviceaccount.com
+      containerConcurrency: 80
+      timeoutSeconds: 60
+
+      containers:
+        - image: PLACEHOLDER_REGION-docker.pkg.dev/PLACEHOLDER_PROJECT/ai-pdf-bot/frontend:latest
+          ports:
+            - containerPort: 3000
+
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            # NEXT_PUBLIC_API_BASE_URL is baked in at build time via --build-arg.
+            # If you need to change the backend URL after building, rebuild the image.

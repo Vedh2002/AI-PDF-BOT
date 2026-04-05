@@ -1,0 +1,34 @@
+version: '3.8'
+
+# Local docker-compose for integration testing before pushing to GCP.
+# For day-to-day dev, use: cd backend && uvicorn app:app --reload
+#                           cd frontend && npm run dev
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - ENVIRONMENT=local
+      - PORT=8080
+    volumes:
+      # Persist SQLite DB and FAISS indexes between container restarts
+      - ./backend/data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "http://localhost:8000"
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - backend
