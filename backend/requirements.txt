@@ -27,3 +27,4 @@ ddgs
 resend
 google-cloud-storage
 google-auth
+google-cloud-secret-manager
